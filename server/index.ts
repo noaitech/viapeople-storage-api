@@ -266,7 +266,7 @@ app.get('/api/backup', authMiddleware, async (_req: Request, res: Response) => {
 const clientDistDir = path.join(process.cwd(), 'client', 'dist');
 if (fs.existsSync(clientDistDir)) {
   app.use(express.static(clientDistDir));
-  app.get('*', (req: Request, res: Response, next: NextFunction) => {
+  app.get('*splat', (req: Request, res: Response, next: NextFunction) => {
     if (req.path.startsWith('/api')) {
       return next();
     }
