@@ -84,9 +84,9 @@ app.post('/api/upload', upload.single('file'), async (req: Request, res: Respons
     }).returning();
 
     res.json({ success: true, upload: newUpload });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Erro no upload:', error);
-    res.status(500).json({ error: 'Erro interno ao salvar arquivo' });
+    res.status(500).json({ error: 'Erro interno ao salvar arquivo', details: error.message || String(error) });
   }
 });
 
@@ -111,6 +111,57 @@ app.get('/api/download/:filename', async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Erro no download:', error);
     res.status(500).json({ error: 'Erro interno ao baixar arquivo' });
+  }
+});
+
+// Rota de Deleção de Arquivo sem auth (usada pelo proxy)
+app.delete('/api/upload/:uniqueName', async (req: Request, res: Response) => {
+  try {
+    const uniqueName = Array.isArray(req.params.uniqueName) ? req.params.uniqueName[0] : req.params.uniqueName;
+
+    const [uploadRecord] = await db.select().from(uploads).where(eq(uploads.uniqueName, uniqueName)).limit(1);
+    if (!uploadRecord) {
+      res.status(404).json({ error: 'Arquivo não encontrado' });
+      return;
+    }
+
+    // Limpar referências na jornada se houver
+    if (uploadRecord.journeyId) {
+      const [journey] = await db.select().from(journeys).where(eq(journeys.id, uploadRecord.journeyId)).limit(1);
+      if (journey) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const updateData: any = {};
+
+        if (Array.isArray(journey.documents)) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          updateData.documents = journey.documents.filter((d: any) => d && typeof d === 'object' && d.uniqueName !== uploadRecord.uniqueName);
+        }
+        if (Array.isArray(journey.aepFiles)) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          updateData.aepFiles = journey.aepFiles.filter((d: any) => d && typeof d === 'object' && d.uniqueName !== uploadRecord.uniqueName);
+        }
+        if (uploadRecord.uniqueName && journey.reportUrl?.includes(uploadRecord.uniqueName)) updateData.reportUrl = null;
+        if (uploadRecord.uniqueName && journey.riskMapUrl?.includes(uploadRecord.uniqueName)) updateData.riskMapUrl = null;
+        if (uploadRecord.uniqueName && journey.actionPlanUrl?.includes(uploadRecord.uniqueName)) updateData.actionPlanUrl = null;
+
+        if (Object.keys(updateData).length > 0) {
+          await db.update(journeys).set(updateData).where(eq(journeys.id, journey.id));
+        }
+      }
+    }
+
+    // Deletar o arquivo físico
+    const filePath = path.join(storageDir, uploadRecord.uniqueName ?? '');
+    if (filePath && fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+
+    await db.delete(uploads).where(eq(uploads.id, uploadRecord.id));
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Erro ao deletar arquivo (proxy):', error);
+    res.status(500).json({ error: 'Erro interno ao deletar arquivo' });
   }
 });
 
