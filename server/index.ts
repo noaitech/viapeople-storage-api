@@ -69,7 +69,10 @@ app.post('/api/upload', upload.single('file'), async (req: Request, res: Respons
     }
 
     const decodedOriginalName = Buffer.from(file.originalname, 'latin1').toString('utf8');
-    const fileUrl = `${req.protocol}://${req.get('host')}/api/download/${file.filename}`;
+    
+    // Se STORAGE_PUBLIC_URL for definido no ambiente, usa ele como base para a URL do arquivo
+    const baseUrl = process.env.STORAGE_PUBLIC_URL || `${req.protocol}://${req.get('host')}`;
+    const fileUrl = `${baseUrl.replace(/\/$/, '')}/api/download/${file.filename}`;
 
     const [newUpload] = await db.insert(uploads).values({
       journeyId: journeyId || null,
